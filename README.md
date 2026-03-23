@@ -1,13 +1,16 @@
 # 🔒 Secure Application Design
-**Enterprise Architecture Workshop**
+**Enterprise Architecture Workshop — TDSE**
 
-Aplicación web segura con login JWT desplegada en AWS EC2 usando Docker. Apache actúa como reverse proxy con TLS (Let's Encrypt/DuckDNS), Spring Boot maneja la API REST y PostgreSQL almacena contraseñas con BCrypt.
+Aplicación web segura con autenticación JWT desplegada en AWS EC2 usando Docker. Apache actúa como reverse proxy con TLS (Let's Encrypt), Spring Boot maneja la API REST y PostgreSQL almacena contraseñas hasheadas con BCrypt.
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.3-green)
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 ![TLS](https://img.shields.io/badge/TLS-Let's%20Encrypt-brightgreen)
 ![AWS](https://img.shields.io/badge/AWS-EC2%20AL2023-yellow)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+
+**🌐 Demo en vivo:** [https://apacheecijcr.duckdns.org](https://apacheecijcr.duckdns.org)
 
 ---
 
@@ -19,6 +22,7 @@ Browser (HTTPS :443)
        ▼
 ┌──────────────────────────────────────────────────────┐
 │  EC2 — Amazon Linux 2023                             │
+│  apacheecijcr.duckdns.org                            │
 │                                                      │
 │  ┌──────────────┐  Docker bridge  ┌───────────────┐  │
 │  │ login_apache │ ─── /api/* ───► │ login_service │  │
@@ -36,10 +40,10 @@ Browser (HTTPS :443)
 ```
 
 **Flujo de una petición login:**
-1. Browser → HTTPS :443 → Apache (TLS termination)
-2. Apache → HTTP :8080 → Spring Boot (`login-service`)
+1. Browser → HTTPS :443 → Apache (TLS termination con Let's Encrypt)
+2. Apache → HTTP :8080 → Spring Boot (`login-service`) vía Docker bridge
 3. Spring → verifica BCrypt hash en PostgreSQL
-4. Spring → genera JWT → Apache → Browser
+4. Spring → genera JWT firmado → Apache → Browser
 
 ---
 
@@ -54,8 +58,9 @@ securelogin/
 ├── .env.example                         # Plantilla — copia como .env
 ├── .gitignore
 ├── README.md
+├── ARCHITECTURE.md                      # Documento de arquitectura detallado
 ├── frontend/
-│   └── index.html                       # Cliente async HTML+JS
+│   └── index.html                       # Cliente async HTML+JS (fetch/async/await)
 └── src/main/
     ├── java/com/securelogin/
     │   ├── SecureloginApplication.java
@@ -66,19 +71,17 @@ securelogin/
     │   │   ├── AuthController.java      # POST /api/auth/register  /login
     │   │   └── UserController.java      # GET  /api/user/me (protegido)
     │   ├── dto/
-    │   │   ├── request/
-    │   │   │   ├── LoginRequest.java
-    │   │   │   └── RegisterRequest.java
-    │   │   └── response/
-    │   │       ├── AuthResponse.java
-    │   │       └── MessageResponse.java
+    │   │   ├── request/LoginRequest.java
+    │   │   ├── request/RegisterRequest.java
+    │   │   └── response/AuthResponse.java
+    │   │   └── response/MessageResponse.java
     │   ├── model/User.java              # username, email, password (BCrypt), fullName
     │   ├── repository/UserRepository.java
     │   ├── security/
     │   │   ├── JwtUtils.java            # Genera y valida JWT (HMAC-SHA256)
-    │   │   ├── JwtAuthFilter.java       # Filtro por request
+    │   │   ├── JwtAuthFilter.java       # Filtro OncePerRequestFilter
     │   │   └── UserDetailsServiceImpl.java
-    │   └── service/AuthService.java     # BCrypt + lastLogin
+    │   └── service/AuthService.java     # BCrypt + lastLogin timestamp
     └── resources/
         ├── application.properties
         └── apache/
@@ -91,23 +94,34 @@ securelogin/
 ## 🔑 Características de Seguridad
 
 ### BCrypt (cost factor 12)
-Las contraseñas **nunca** se guardan en texto plano:
+Las contraseñas **nunca** se guardan en texto plano. Se hashean con BCrypt antes de persistir:
 ```java
 // AuthService.java
 password(passwordEncoder.encode(req.getPassword()))  // BCrypt hash
-// BCryptPasswordEncoder.matches() lo verifica en login
+// BCryptPasswordEncoder.matches() lo verifica internamente en login
 ```
 
 ### JWT Stateless
 - Firmado con HMAC-SHA256
-- Expira en 24 horas (configurable)
-- Sin estado en servidor → escalable horizontalmente
+- Expira en 24 horas (configurable vía `JWT_EXPIRATION_MS`)
+- Sin sesión en el servidor → escalable horizontalmente
+- Validado en cada request por `JwtAuthFilter`
 
 ### TLS Offloading
-Apache termina HTTPS y reenvía a Spring por HTTP interno — la gestión de certificados queda fuera de la capa de aplicación.
+Apache termina HTTPS con certificados Let's Encrypt y reenvía a Spring Boot por HTTP interno. La gestión de certificados queda completamente fuera de la capa de aplicación.
 
 ### Secretos en variables de entorno
-Ningún secreto está en el código fuente o en imágenes Docker. Todo viene del `.env`.
+Ningún secreto está en el código fuente ni en las imágenes Docker. Todo se inyecta desde el archivo `.env` en tiempo de ejecución.
+
+### Cabeceras HTTP de Seguridad
+```
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: geolocation=(), microphone=(), camera=()
+```
 
 ---
 
@@ -115,8 +129,8 @@ Ningún secreto está en el código fuente o en imágenes Docker. Todo viene del
 
 ### Opción A — Sin Docker (H2 en memoria)
 ```bash
-git clone https://github.com/TU_USUARIO/secure-app.git
-cd secure-app
+git clone https://github.com/davidcastiblanco/secure-login-aws.git
+cd secure-login-aws
 mvn spring-boot:run
 # API disponible en http://localhost:8080
 # H2 Console: http://localhost:8080/h2-console
@@ -132,7 +146,6 @@ cp .env.example .env
 docker compose up --build -d
 
 # App disponible en http://localhost
-# Apache → puerto 80 → Spring (8080 interno) → PostgreSQL (5432 interno)
 ```
 
 ---
@@ -141,243 +154,176 @@ docker compose up --build -d
 
 ### Paso 1 — Crear instancia EC2
 
-1. En la consola AWS → **EC2 → Launch Instance**
-2. Nombre: `secure-login-server`
-3. AMI: **Amazon Linux 2023**
-4. Tipo: `t2.micro` (Free Tier)
-5. Par de claves: crear o seleccionar uno existente
-6. **Security Group** — Inbound rules:
+1. AWS Console → **EC2 → Launch Instance**
+2. AMI: **Amazon Linux 2023**, Tipo: `t3.micro`
+3. **Security Group — Inbound rules:**
 
-| Puerto | Protocolo | Fuente    | Descripción              |
-|--------|-----------|-----------|--------------------------|
-| 22     | TCP       | Tu IP     | SSH admin                |
-| 80     | TCP       | 0.0.0.0/0 | HTTP (redirige a HTTPS)  |
-| 443    | TCP       | 0.0.0.0/0 | HTTPS (aplicación)       |
+| Puerto | Protocolo | Fuente | Descripción |
+|--------|-----------|--------|-------------|
+| 22 | TCP | Tu IP | SSH admin |
+| 80 | TCP | 0.0.0.0/0 | HTTP → redirect HTTPS |
+| 443 | TCP | 0.0.0.0/0 | HTTPS (aplicación) |
 
-7. **Launch instance** → anotar la IP pública
-
-### Paso 2 — Configurar DuckDNS (dominio gratuito)
-
-1. Ir a [https://www.duckdns.org](https://www.duckdns.org) → Login con GitHub o Google
-2. Crear un subdominio: `tu-nombre.duckdns.org`
-3. Ingresar la **IP pública** de tu instancia EC2
-4. Click en **Update IP**
-5. Verificar: `ping tu-nombre.duckdns.org` → debe responder con tu IP EC2
-
-### Paso 3 — Conectar a la instancia y preparar el entorno
+### Paso 2 — Preparar el entorno
 
 ```bash
 # Conectar por SSH
-ssh -i tu-clave.pem ec2-user@<IP_PUBLICA_EC2>
+ssh -i "tu-clave.pem" ec2-user@<IP_EC2>
 
-# Actualizar el sistema
+# Instalar Docker + Docker Compose
 sudo dnf update -y
-
-# Instalar Docker
-sudo dnf install -y docker
+sudo dnf install -y docker git unzip python3-pip
 sudo systemctl enable --now docker
 sudo usermod -aG docker ec2-user
-newgrp docker   # aplica el grupo sin reconectar
 
-# Instalar Docker Compose plugin
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
 sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-docker compose version   # verificar instalación
-
-# Instalar Git
-sudo dnf install -y git
-
-# Instalar Certbot (Let's Encrypt)
-sudo dnf install -y python3 augeas-libs
-sudo pip3 install certbot
 ```
 
-### Paso 4 — Obtener certificado TLS con Let's Encrypt
+### Paso 3 — Subir el proyecto
 
+Desde tu PC:
 ```bash
-# Certbot necesita el puerto 80 libre durante el challenge.
-# Asegúrate de que ningún proceso lo esté usando.
-sudo certbot certonly --standalone \
-  -d tu-nombre.duckdns.org \
-  --email tu@email.com \
-  --agree-tos \
-  --non-interactive
-
-# Verificar que el certificado existe:
-sudo ls /etc/letsencrypt/live/tu-nombre.duckdns.org/
-# fullchain.pem  privkey.pem  chain.pem  cert.pem
+scp -i "tu-clave.pem" secure-login-aws.zip ec2-user@<IP_EC2>:~/
 ```
 
-### Paso 5 — Clonar el repositorio y configurar
-
+En la EC2:
 ```bash
-cd ~
-git clone https://github.com/TU_USUARIO/secure-app.git
-cd secure-app
-
-# Crear el archivo .env con tus valores reales
+unzip secure-login-aws.zip && cd secure-app
 cp .env.example .env
 nano .env
 ```
 
-Contenido del `.env` en producción:
+Contenido del `.env`:
 ```bash
 DB_NAME=logindb
 DB_USER=loginuser
-DB_PASSWORD=una_password_muy_segura_aqui
+DB_PASSWORD=una_password_segura
 
-# Genera un secret JWT seguro:
-# openssl rand -hex 64
-JWT_SECRET=aqui_pega_el_resultado_de_openssl_rand_hex_64
+# Generar con: openssl rand -hex 64
+JWT_SECRET=pega_aqui_el_resultado
 
 JWT_EXPIRATION_MS=86400000
-CORS_ALLOWED_ORIGINS=https://tu-nombre.duckdns.org
+CORS_ALLOWED_ORIGINS=https://TU_DOMINIO
 ```
 
-Editar `httpd.prod.conf` para reemplazar el dominio:
+### Paso 4 — Certificado TLS con Let's Encrypt
+
 ```bash
-sed -i 's/yourdomain.duckdns.org/tu-nombre.duckdns.org/g' \
+# Parar cualquier proceso en el puerto 80
+sudo systemctl stop httpd 2>/dev/null
+
+# Obtener certificado
+sudo pip3 install certbot
+sudo certbot certonly --standalone \
+  -d TU_DOMINIO \
+  --email tu@email.com \
+  --agree-tos \
+  --non-interactive
+```
+
+> **Tip:** Puedes usar [sslip.io](https://sslip.io) como dominio gratuito sin registro. Si tu IP es `1.2.3.4`, el dominio es automáticamente `1-2-3-4.sslip.io`.
+
+### Paso 5 — Levantar en producción
+
+```bash
+# Actualizar dominio en Apache
+sed -i 's/yourdomain.duckdns.org/TU_DOMINIO/g' \
   src/main/resources/apache/httpd.prod.conf
-```
 
-### Paso 6 — Levantar en producción
-
-```bash
-# Dar permisos al directorio de certificados
+# Permisos a los certificados
 sudo chmod 755 /etc/letsencrypt/live
 sudo chmod 755 /etc/letsencrypt/archive
 
-# Levantar con docker-compose.prod.yml
+# Levantar
 docker compose -f docker-compose.prod.yml up --build -d
 
-# Verificar que todos los contenedores están corriendo
+# Verificar
 docker compose -f docker-compose.prod.yml ps
 ```
 
-### Paso 7 — Verificar el despliegue
+### Paso 6 — Verificar
 
 ```bash
-# Verificar certificado TLS
-curl -I https://tu-nombre.duckdns.org
-
-# Probar login via API
-curl -X POST https://tu-nombre.duckdns.org/api/auth/register \
+curl -X POST https://TU_DOMINIO/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"testuser","email":"test@test.com","password":"Test1234!","fullName":"Test User"}'
-
-curl -X POST https://tu-nombre.duckdns.org/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"Test1234!"}'
-
-# Con el token obtenido:
-TOKEN="eyJhbGci..."
-curl https://tu-nombre.duckdns.org/api/user/me \
-  -H "Authorization: Bearer $TOKEN"
+  -d '{"username":"test","email":"test@test.com","password":"Test1234!","fullName":"Test"}'
+# Respuesta: {"message":"User registered successfully."}
 ```
 
 ---
 
 ## 📡 API Endpoints
 
-| Método | Endpoint               | Auth     | Descripción                           |
-|--------|------------------------|----------|---------------------------------------|
-| POST   | `/api/auth/register`   | No       | Registrar usuario (BCrypt hash)       |
-| POST   | `/api/auth/login`      | No       | Login → JWT token                     |
-| GET    | `/api/user/me`         | JWT      | Verificar sesión activa               |
+| Método | Endpoint | Auth | Descripción |
+|--------|----------|------|-------------|
+| POST | `/api/auth/register` | No | Registrar usuario (BCrypt hash) |
+| POST | `/api/auth/login` | No | Login → JWT token |
+| GET | `/api/user/me` | JWT | Verificar sesión activa |
 
-### Ejemplos de petición/respuesta
+### Ejemplos
 
-**POST /api/auth/register**
+**Registro:**
 ```json
-// Request
-{ "username": "juan", "email": "juan@example.com",
-  "password": "pass1234", "fullName": "Juan García" }
+POST /api/auth/register
+{ "username": "david", "email": "david@mail.com", "password": "pass1234", "fullName": "David Castiblanco" }
 
-// 200 OK
-{ "message": "User registered successfully." }
-
-// 400 Bad Request (validación)
-{ "password": "size must be between 8 and 72" }
+200 OK → { "message": "User registered successfully." }
+400    → { "password": "size must be between 8 and 72" }
 ```
 
-**POST /api/auth/login**
+**Login:**
 ```json
-// Request
-{ "username": "juan", "password": "pass1234" }
+POST /api/auth/login
+{ "username": "david", "password": "pass1234" }
 
-// 200 OK
-{ "token": "eyJhbGci...", "tokenType": "Bearer", "expiresIn": 86400000 }
-
-// 401 Unauthorized
-{ "message": "Invalid username or password." }
+200 OK → { "token": "eyJhbGci...", "tokenType": "Bearer", "expiresIn": 86400000 }
+401    → { "message": "Invalid username or password." }
 ```
 
-**GET /api/user/me**
+**Endpoint protegido:**
 ```
+GET /api/user/me
 Authorization: Bearer eyJhbGci...
 
-200 OK  → token válido
-403     → token ausente, expirado o con firma inválida
-```
-
----
-
-## 🔄 Renovación automática del certificado
-
-```bash
-# Prueba de renovación (sin aplicar cambios)
-sudo certbot renew --dry-run
-
-# Agregar cron job para renovación automática (cada 12 horas)
-echo "0 0,12 * * * root certbot renew --quiet --deploy-hook 'docker compose -f /home/ec2-user/secure-app/docker-compose.prod.yml restart apache'" \
-  | sudo tee /etc/cron.d/certbot-renew
+200 OK → token válido
+403    → token ausente, expirado o inválido
 ```
 
 ---
 
 ## 🐛 Solución de Problemas
 
-**Ver logs de los contenedores:**
+**Ver logs:**
 ```bash
-docker compose -f docker-compose.prod.yml logs -f apache
 docker compose -f docker-compose.prod.yml logs -f login-service
-docker compose -f docker-compose.prod.yml logs -f postgres
+docker compose -f docker-compose.prod.yml logs -f apache
 ```
 
-**Reiniciar un servicio:**
+**Puerto 80 ocupado al correr Certbot:**
+```bash
+sudo lsof -i :80
+sudo systemctl stop httpd
+```
+
+**Reiniciar un contenedor:**
 ```bash
 docker compose -f docker-compose.prod.yml restart apache
 ```
 
-**Error "port 80 already in use" al ejecutar Certbot:**
-```bash
-sudo lsof -i :80   # identificar el proceso
-# Si es Apache del host:
-sudo systemctl stop httpd
-# Volver a ejecutar certbot...
-```
-
-**Error de CORS en el navegador:**
-- Verificar que `CORS_ALLOWED_ORIGINS` en `.env` tiene la URL exacta con `https://`
-
 ---
 
-## 📹 Guía para el Video de Demostración
+## 👨‍💻 Autor
 
-1. Mostrar el navegador en `https://tu-nombre.duckdns.org` → candado TLS visible
-2. Abrir DevTools (F12) → pestaña Network
-3. Registrar un nuevo usuario → mostrar petición POST y respuesta 200
-4. Iniciar sesión → mostrar el JWT en la respuesta
-5. Copiar el token → pegarlo en [jwt.io](https://jwt.io) → mostrar el payload decodificado
-6. Hacer clic en **GET /api/user/me** → mostrar header `Authorization: Bearer ...`
-7. Cerrar sesión y mostrar que el endpoint falla sin token (403)
-8. Mostrar el certificado TLS en el navegador (información del sitio)
+**Julian David Castiblanco Real**  
+Escuela Colombiana de Ingeniería Julio Garavito — 2026
 
 ---
+Evidencias:
 
-## 👨‍💻 Créditos
-
-Basado en el tutorial **TDSE_Secure_Login_AWS** de Juan Carlos Leal Cruz.
-Adaptado para el *Enterprise Architecture Workshop: Secure Application Design*.
+![img.png](img.png)
+![img_1.png](img_1.png)
+![img_2.png](img_2.png)
+![img_3.png](img_3.png)
