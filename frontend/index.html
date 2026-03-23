@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureLogin — JWT Auth Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ══════════════════════════════════════════════════════════
+       VARIABLES & RESET
+    ══════════════════════════════════════════════════════════ */
+    :root {
+      --bg:       #f4f5f7;
+      --card-bg:  #ffffff;
+      --border:   #d1d5db;
+      --accent:   #2563eb;
+      --danger:   #dc2626;
+      --success:  #16a34a;
+      --text:     #1f2937;
+      --muted:    #6b7280;
+      --font-ui:  'Syne', system-ui, sans-serif;
+      --font-mono:'IBM Plex Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       APP WRAPPER
+    ══════════════════════════════════════════════════════════ */
+    #app { width: 100%; max-width: 440px; }
+
+    /* ── Logo ── */
+    .logo {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+    .logo h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .logo h1 span { color: var(--accent); }
+    .logo p {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: #f9fafb;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: .75rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: var(--font-ui);
+      font-size: .88rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .15s;
+    }
+    .tab-btn:hover { color: var(--text); background: #f3f4f6; }
+    .tab-btn.active {
+      color: var(--accent);
+      font-weight: 700;
+      border-bottom-color: var(--accent);
+      background: var(--card-bg);
+    }
+
+    /* ── Panels ── */
+    .panel { display: none; padding: 1.5rem; }
+    .panel.active { display: block; }
+
+    /* ── Form fields ── */
+    .field { margin-bottom: 1rem; }
+    label {
+      display: block;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: .35rem;
+    }
+    input {
+      width: 100%;
+      padding: .6rem .8rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: .85rem;
+      color: var(--text);
+      background: #fff;
+      transition: border-color .15s, box-shadow .15s;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    input::placeholder { color: #9ca3af; }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%;
+      padding: .65rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font-ui);
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      margin-top: .25rem;
+    }
+    .btn-primary:hover:not(:disabled) { opacity: .9; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      margin-top: .5rem;
+    }
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+      margin-top: .5rem;
+    }
+
+    /* ── Alerts ── */
+    .alert {
+      padding: .6rem .9rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: .78rem;
+      margin-bottom: .9rem;
+      display: none;
+    }
+    .alert.show { display: block; }
+    .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: var(--danger); }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: var(--success); }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      vertical-align: middle;
+      margin-right: .4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── TLS badge ── */
+    .tls-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .4rem;
+      font-family: var(--font-mono);
+      font-size: .68rem;
+      color: var(--success);
+      margin-bottom: 1rem;
+    }
+    .tls-dot {
+      width: 7px; height: 7px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+    /* ══════════════════════════════════════════════════════════
+       DASHBOARD
+    ══════════════════════════════════════════════════════════ */
+    #dashboard { display: none; }
+
+    .dash-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: #f9fafb;
+    }
+    .dash-title {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      font-family: var(--font-mono);
+      font-size: .75rem;
+      color: var(--muted);
+    }
+    .user-avatar {
+      width: 26px; height: 26px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .65rem; font-weight: 700;
+    }
+
+    .dash-body { padding: 1.25rem; }
+
+    /* Status grid */
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .75rem;
+      margin-bottom: 1.25rem;
+    }
+    .status-card {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .9rem 1rem;
+    }
+    .status-label {
+      font-size: .68rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: .25rem;
+    }
+    .status-value {
+      font-family: var(--font-mono);
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .status-value.green { color: var(--success); }
+    .status-value.blue  { color: var(--accent); }
+
+    /* Token display */
+    .token-box {
+      background: #1e293b;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      font-size: .68rem;
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1.25rem;
+      word-break: break-all;
+      line-height: 1.6;
+      max-height: 80px;
+      overflow-y: auto;
+      cursor: pointer;
+      position: relative;
+    }
+    .token-box:hover { background: #1a2436; }
+    .token-label {
+      font-size: .68rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: .35rem;
+    }
+
+    /* Request log */
+    .log-label {
+      font-size: .68rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: .35rem;
+    }
+    .log-box {
+      background: #0f172a;
+      color: #4ade80;
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      min-height: 100px;
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.8;
+    }
+    .log-time { color: #64748b; }
+    .log-err  { color: #f87171; }
+    .log-ok   { color: #4ade80; }
+    .log-info { color: #60a5fa; }
+
+    .action-row {
+      display: flex; gap: .5rem;
+      margin-bottom: 1rem;
+    }
+    .action-row .btn {
+      width: auto; flex: 1;
+      font-size: .78rem;
+      padding: .5rem .75rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     AUTH SCREENS (Login / Register)
+══════════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <div class="logo">
+    <h1>Secure<span>Login</span></h1>
+    <p>JWT Auth Demo · Spring Boot + Apache</p>
+  </div>
+
+  <div class="tls-badge">
+    <div class="tls-dot"></div>
+    HTTPS · TLS · Let's Encrypt
+  </div>
+
+  <div class="card" id="auth-card">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('login')">Sign In</button>
+      <button class="tab-btn"        onclick="switchTab('register')">Register</button>
+    </div>
+
+    <!-- LOGIN panel -->
+    <div class="panel active" id="panel-login">
+      <div class="alert alert-error"   id="login-error"></div>
+      <div class="alert alert-success" id="login-success"></div>
+
+      <div class="field">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text"
+               placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password"
+               placeholder="••••••••" autocomplete="current-password" />
+      </div>
+
+      <button class="btn btn-primary" id="login-btn" onclick="doLogin()">
+        Sign In
+      </button>
+    </div>
+
+    <!-- REGISTER panel -->
+    <div class="panel" id="panel-register">
+      <div class="alert alert-error"   id="reg-error"></div>
+      <div class="alert alert-success" id="reg-success"></div>
+
+      <div class="field">
+        <label for="reg-fullname">Full Name</label>
+        <input id="reg-fullname" type="text" placeholder="Juan García" />
+      </div>
+      <div class="field">
+        <label for="reg-username">Username</label>
+        <input id="reg-username" type="text" placeholder="juangarcia" />
+      </div>
+      <div class="field">
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" placeholder="juan@example.com" />
+      </div>
+      <div class="field">
+        <label for="reg-password">Password <span style="color:var(--muted);font-weight:400">(min. 8 chars)</span></label>
+        <input id="reg-password" type="password" placeholder="••••••••" />
+      </div>
+
+      <button class="btn btn-primary" id="reg-btn" onclick="doRegister()">
+        Create Account
+      </button>
+    </div>
+  </div>
+
+</div><!-- /#app -->
+
+<!-- ══════════════════════════════════════════════════════════
+     DASHBOARD (shown after login)
+══════════════════════════════════════════════════════════ -->
+<div id="dashboard" style="width:100%;max-width:520px;">
+
+  <div class="logo">
+    <h1>Secure<span>Login</span></h1>
+    <p>Dashboard · Protected Area</p>
+  </div>
+
+  <div class="card">
+
+    <!-- Header -->
+    <div class="dash-header">
+      <div class="dash-title">Welcome back 👋</div>
+      <div class="user-chip">
+        <div class="user-avatar" id="dash-initial">?</div>
+        <span id="dash-username">—</span>
+      </div>
+    </div>
+
+    <div class="dash-body">
+
+      <!-- Status cards -->
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="status-label">TLS</div>
+          <div class="status-value green">✅ Active</div>
+        </div>
+        <div class="status-card">
+          <div class="status-label">Auth</div>
+          <div class="status-value blue">JWT Bearer</div>
+        </div>
+        <div class="status-card">
+          <div class="status-label">Passwords</div>
+          <div class="status-value">BCrypt ×12</div>
+        </div>
+        <div class="status-card">
+          <div class="status-label">Session</div>
+          <div class="status-value" id="dash-expiry">—</div>
+        </div>
+      </div>
+
+      <!-- JWT token display -->
+      <div class="token-label">JWT Token (click to copy)</div>
+      <div class="token-box" id="token-display" onclick="copyToken()">—</div>
+
+      <!-- Action buttons -->
+      <div class="action-row">
+        <button class="btn btn-primary"   onclick="pingMe()">🔐 GET /api/user/me</button>
+        <button class="btn btn-secondary" onclick="copyToken()">📋 Copy Token</button>
+      </div>
+
+      <!-- Request log -->
+      <div class="log-label">Request log</div>
+      <div class="log-box" id="log-box">
+        <span class="log-info">[SYSTEM]</span> Session started. TLS active.<br>
+      </div>
+
+      <button class="btn btn-danger" onclick="doLogout()" style="margin-top:1rem">
+        Sign Out
+      </button>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT — Async Client
+     NOTA: Las peticiones van a /api/* (mismo origen).
+     Apache recibe la petición y la reenvía al contenedor
+     Spring Boot internamente por HTTP (reverse proxy).
+     El navegador nunca habla directamente con Spring.
+══════════════════════════════════════════════════════════ -->
+<script>
+  // ── Config ────────────────────────────────────────────────
+  // MISMO ORIGEN — Apache actúa como reverse proxy.
+  // No hay URL cruzada: el cliente llama a /api/* y Apache
+  // lo redirige internamente a http://login-service:8080/api/*.
+  const API = '/api';
+
+  let token   = sessionStorage.getItem('token') || null;
+  let expiry  = Number(sessionStorage.getItem('expiry') || 0);
+
+  // ── Init ──────────────────────────────────────────────────
+  window.onload = () => {
+    if (token && Date.now() < expiry) {
+      const username = sessionStorage.getItem('username') || '?';
+      renderDashboard(username);
+    }
+  };
+
+  // ── Tab switching ─────────────────────────────────────────
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach((b, i) =>
+      b.classList.toggle('active', (tab === 'login') ? i === 0 : i === 1));
+    document.getElementById('panel-login').classList.toggle('active', tab === 'login');
+    document.getElementById('panel-register').classList.toggle('active', tab === 'register');
+  }
+
+  // ── Alert helpers ─────────────────────────────────────────
+  function showAlert(id, msg, type = 'error') {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert alert-${type} show`;
+    setTimeout(() => el.classList.remove('show'), 5000);
+  }
+
+  function setLoading(btnId, loading, label) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.innerHTML = loading
+      ? `<span class="spinner"></span> Loading…`
+      : label;
+  }
+
+  // ── Log terminal ──────────────────────────────────────────
+  function log(msg, type = '') {
+    const box  = document.getElementById('log-box');
+    if (!box) return;
+    const time = new Date().toLocaleTimeString();
+    const cls  = type === 'err'  ? 'log-err'
+               : type === 'info' ? 'log-info'
+               : type === 'ok'   ? 'log-ok' : '';
+    box.innerHTML += `<span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span><br>`;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ── Generic fetch wrapper (async/await) ───────────────────
+  async function apiFetch(path, options = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res  = await fetch(`${API}${path}`, { ...options, headers });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
+
+    if (!res.ok) {
+      const msg = data.message || data.error
+               || Object.values(data)[0]
+               || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return { status: res.status, data };
+  }
+
+  // ── LOGIN ─────────────────────────────────────────────────
+  async function doLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) {
+      showAlert('login-error', 'Please fill in all fields.');
+      return;
+    }
+
+    setLoading('login-btn', true);
+
+    try {
+      // POST /api/auth/login → Apache → Spring Boot (async fetch)
+      const { data } = await apiFetch('/auth/login', {
+        method: 'POST',
+        body:   JSON.stringify({ username, password })
+      });
+
+      token  = data.token;
+      expiry = Date.now() + (data.expiresIn || 86400000);
+      sessionStorage.setItem('token',    token);
+      sessionStorage.setItem('expiry',   expiry);
+      sessionStorage.setItem('username', username);
+
+      showAlert('login-success', '✅ Login successful!', 'success');
+      setTimeout(() => renderDashboard(username), 600);
+
+    } catch (err) {
+      showAlert('login-error', `❌ ${err.message}`);
+    } finally {
+      setLoading('login-btn', false, 'Sign In');
+    }
+  }
+
+  // ── REGISTER ──────────────────────────────────────────────
+  async function doRegister() {
+    const fullName = document.getElementById('reg-fullname').value.trim();
+    const username = document.getElementById('reg-username').value.trim();
+    const email    = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+
+    if (!username || !email || !password) {
+      showAlert('reg-error', 'Username, email and password are required.');
+      return;
+    }
+
+    setLoading('reg-btn', true);
+
+    try {
+      // POST /api/auth/register → Apache → Spring Boot (async fetch)
+      const { data } = await apiFetch('/auth/register', {
+        method: 'POST',
+        body:   JSON.stringify({ username, email, password, fullName })
+      });
+
+      showAlert('reg-success', '✅ Account created! You can now sign in.', 'success');
+      setTimeout(() => switchTab('login'), 1500);
+
+    } catch (err) {
+      showAlert('reg-error', `❌ ${err.message}`);
+    } finally {
+      setLoading('reg-btn', false, 'Create Account');
+    }
+  }
+
+  // ── DASHBOARD RENDER ──────────────────────────────────────
+  function renderDashboard(username) {
+    document.getElementById('app').style.display       = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+
+    document.getElementById('dash-username').textContent = username;
+    document.getElementById('dash-initial').textContent  = username[0].toUpperCase();
+
+    const mins = Math.round((expiry - Date.now()) / 60000);
+    document.getElementById('dash-expiry').textContent = `${mins}m left`;
+
+    document.getElementById('token-display').textContent = token;
+    log('Authenticated. Token stored in sessionStorage.', 'ok');
+  }
+
+  // ── PING /api/user/me (protected endpoint) ────────────────
+  async function pingMe() {
+    log('GET /api/user/me → sending…', 'info');
+    try {
+      const { status } = await apiFetch('/user/me');
+      log(`GET /api/user/me → ${status} OK — token is valid ✅`, 'ok');
+    } catch (err) {
+      log(`GET /api/user/me → ERROR: ${err.message}`, 'err');
+    }
+  }
+
+  // ── COPY TOKEN ────────────────────────────────────────────
+  function copyToken() {
+    if (!token) return;
+    navigator.clipboard.writeText(token)
+      .then(() => log('Token copied to clipboard 📋', 'info'))
+      .catch(() => log('Copy failed — use Ctrl+C manually', 'err'));
+  }
+
+  // ── LOGOUT ────────────────────────────────────────────────
+  function doLogout() {
+    token = null;
+    sessionStorage.clear();
+    document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('app').style.display       = 'block';
+    document.getElementById('log-box').innerHTML =
+      '<span class="log-info">[SYSTEM]</span> Session started. TLS active.<br>';
+    switchTab('login');
+  }
+
+  // ── Enter key ─────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const loginActive = document.getElementById('panel-login').classList.contains('active');
+    if (loginActive) doLogin(); else doRegister();
+  });
+</script>
+</body>
+</html>
